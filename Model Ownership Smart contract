@@ -4,18 +4,22 @@ pragma solidity ^0.8.0;
 contract ModelOwnership {
 
     address public owner;
+    address private previousOwner;
     string public modelName;
     string public modelDescription;
+    string private verificationPassword;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event ModelNameUpdated(string oldName, string newName);
     event ModelDescriptionUpdated(string oldDescription, string newDescription);
     event OwnershipRenounced(address indexed previousOwner);
+    event ModelReset();
 
     constructor(string memory _modelName, string memory _modelDescription) {
         owner = msg.sender;
         modelName = _modelName;
         modelDescription = _modelDescription;
+        verificationPassword = "default"; // Can be updated later
     }
 
     modifier onlyOwner() {
@@ -25,7 +29,7 @@ contract ModelOwnership {
 
     function transferOwnership(address newOwner) public onlyOwner {
         require(newOwner != address(0), "New owner cannot be the zero address.");
-        address previousOwner = owner;
+        previousOwner = owner;
         owner = newOwner;
         emit OwnershipTransferred(previousOwner, newOwner);
     }
@@ -43,7 +47,7 @@ contract ModelOwnership {
     }
 
     function renounceOwnership() public onlyOwner {
-        address previousOwner = owner;
+        previousOwner = owner;
         owner = address(0);
         emit OwnershipRenounced(previousOwner);
     }
@@ -54,5 +58,37 @@ contract ModelOwnership {
 
     function getOwnershipDetails() public view returns (address, string memory, string memory) {
         return (owner, modelName, modelDescription);
+    }
+
+    function restoreOwnership() public {
+        require(msg.sender == previousOwner, "Only previous owner can restore ownership.");
+        require(owner == address(0), "Ownership is still active.");
+        owner = previousOwner;
+        emit OwnershipTransferred(address(0), owner);
+    }
+
+    function changeOwnerWithVerification(address newOwner, string memory password) public onlyOwner {
+        require(keccak256(abi.encodePacked(password)) == keccak256(abi.encodePacked(verificationPassword)), "Invalid password.");
+        previousOwner = owner;
+        owner = newOwner;
+        emit OwnershipTransferred(previousOwner, newOwner);
+    }
+
+    function updateVerificationPassword(string memory newPassword) public onlyOwner {
+        verificationPassword = newPassword;
+    }
+
+    function resetModelDetails() public onlyOwner {
+        modelName = "";
+        modelDescription = "";
+        emit ModelReset();
+    }
+
+    function isModelInfoEmpty() public view returns (bool) {
+        return (bytes(modelName).length == 0 && bytes(modelDescription).length == 0);
+    }
+
+    function getModelSummary() public view returns (string memory) {
+        return string(abi.encodePacked("Model Name: ", modelName, " | Description: ", modelDescription));
     }
 }
