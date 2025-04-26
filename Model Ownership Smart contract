@@ -5,15 +5,34 @@ contract ModelOwnership {
 
     address public owner;
     address private previousOwner;
+    address public recoveryAddress;
+
     string public modelName;
     string public modelDescription;
     string private verificationPassword;
 
+    bool public isLocked;
+
+    address private pendingOwner;
+
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferRequested(address indexed currentOwner, address indexed pendingOwner);
     event ModelNameUpdated(string oldName, string newName);
     event ModelDescriptionUpdated(string oldDescription, string newDescription);
     event OwnershipRenounced(address indexed previousOwner);
     event ModelReset();
+    event ModelLocked();
+    event ModelUnlocked();
+    event PasswordUpdated();
+    event RecoveryAddressUpdated(address indexed oldRecovery, address indexed newRecovery);
+
+    struct ModelHistory {
+        string oldName;
+        string oldDescription;
+        uint256 timestamp;
+    }
+
+    ModelHistory[] public modelHistory;
 
     constructor(string memory _modelName, string memory _modelDescription) {
         owner = msg.sender;
@@ -27,6 +46,11 @@ contract ModelOwnership {
         _;
     }
 
+    modifier notLocked() {
+        require(!isLocked, "Model is locked.");
+        _;
+    }
+
     function transferOwnership(address newOwner) public onlyOwner {
         require(newOwner != address(0), "New owner cannot be the zero address.");
         previousOwner = owner;
@@ -34,13 +58,29 @@ contract ModelOwnership {
         emit OwnershipTransferred(previousOwner, newOwner);
     }
 
-    function updateModelName(string memory newName) public onlyOwner {
+    function requestOwnershipTransfer(address _pendingOwner) public onlyOwner {
+        require(_pendingOwner != address(0), "Pending owner cannot be zero address.");
+        pendingOwner = _pendingOwner;
+        emit OwnershipTransferRequested(owner, pendingOwner);
+    }
+
+    function approveOwnershipTransfer() public {
+        require(msg.sender == pendingOwner, "Only the pending owner can accept ownership.");
+        previousOwner = owner;
+        owner = pendingOwner;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(previousOwner, owner);
+    }
+
+    function updateModelName(string memory newName) public onlyOwner notLocked {
+        modelHistory.push(ModelHistory(modelName, modelDescription, block.timestamp));
         string memory oldName = modelName;
         modelName = newName;
         emit ModelNameUpdated(oldName, newName);
     }
 
-    function updateModelDescription(string memory newDescription) public onlyOwner {
+    function updateModelDescription(string memory newDescription) public onlyOwner notLocked {
+        modelHistory.push(ModelHistory(modelName, modelDescription, block.timestamp));
         string memory oldDescription = modelDescription;
         modelDescription = newDescription;
         emit ModelDescriptionUpdated(oldDescription, newDescription);
@@ -61,7 +101,7 @@ contract ModelOwnership {
     }
 
     function restoreOwnership() public {
-        require(msg.sender == previousOwner, "Only previous owner can restore ownership.");
+        require(msg.sender == previousOwner || msg.sender == recoveryAddress, "Only previous or recovery address can restore ownership.");
         require(owner == address(0), "Ownership is still active.");
         owner = previousOwner;
         emit OwnershipTransferred(address(0), owner);
@@ -76,9 +116,11 @@ contract ModelOwnership {
 
     function updateVerificationPassword(string memory newPassword) public onlyOwner {
         verificationPassword = newPassword;
+        emit PasswordUpdated();
     }
 
     function resetModelDetails() public onlyOwner {
+        modelHistory.push(ModelHistory(modelName, modelDescription, block.timestamp));
         modelName = "";
         modelDescription = "";
         emit ModelReset();
@@ -90,5 +132,30 @@ contract ModelOwnership {
 
     function getModelSummary() public view returns (string memory) {
         return string(abi.encodePacked("Model Name: ", modelName, " | Description: ", modelDescription));
+    }
+
+    function lockModel() public onlyOwner {
+        isLocked = true;
+        emit ModelLocked();
+    }
+
+    function unlockModel() public onlyOwner {
+        isLocked = false;
+        emit ModelUnlocked();
+    }
+
+    function getModelHistory(uint index) public view returns (string memory, string memory, uint256) {
+        require(index < modelHistory.length, "Invalid history index.");
+        ModelHistory memory history = modelHistory[index];
+        return (history.oldName, history.oldDescription, history.timestamp);
+    }
+
+    function setRecoveryAddress(address newRecovery) public onlyOwner {
+        emit RecoveryAddressUpdated(recoveryAddress, newRecovery);
+        recoveryAddress = newRecovery;
+    }
+
+    function getModelHistoryLength() public view returns (uint) {
+        return modelHistory.length;
     }
 }
